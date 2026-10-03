@@ -30,7 +30,7 @@ ssh -N -L 18080:127.0.0.1:18080 -L 18443:127.0.0.1:18443 home-ubuntu
 ```
 
 Then open <http://localhost:18080>. The origin in the compose file matches this
-URL. Agent installation commands generated later explicitly pin beta.1.
+URL. Agent installation commands generated later explicitly pin beta.2.
 Loopback HTTP does not provide TLS for a remote Agent; configure a reachable TLS
 AGENT origin and matching WEB origin before enrolling real remote machines.
 
