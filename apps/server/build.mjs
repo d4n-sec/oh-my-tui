@@ -14,6 +14,9 @@ const external = [
   "@simplewebauthn/server",
 ];
 
+// Avoid shipping obsolete modules or tests left by earlier builds.
+fs.rmSync("dist", { recursive: true, force: true });
+
 await build({
   entryPoints: ["src/index.ts", "src/cli.ts", "src/admin.ts"],
   outdir: "dist",

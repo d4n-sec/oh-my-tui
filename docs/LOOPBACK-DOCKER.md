@@ -1,6 +1,6 @@
 # Server-only Docker installation over SSH
 
-This installs the published `@oh-my-tui/server@0.1.0-beta.1`, including its web UI,
+This installs the published `@oh-my-tui/server@0.1.0-beta.2`, including its web UI,
 using Node 24. It does not install or enroll an Agent. Optional native dependency
 builds and npm install scripts are disabled; the SSH dependency uses its JavaScript
 fallback. The image verifies the installed package version during its build.

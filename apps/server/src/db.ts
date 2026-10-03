@@ -133,6 +133,13 @@ const MIGRATIONS: string[] = [
   CREATE INDEX idx_webauthn_challenges_challenge ON webauthn_challenges(challenge);
   CREATE INDEX idx_webauthn_challenges_expires ON webauthn_challenges(expires_at);
   `,
+  // Additive migration preserves existing owners, machines and sessions.
+  "ALTER TABLE terminal_sessions ADD COLUMN cleanup_requested_at INTEGER; " +
+  "ALTER TABLE terminal_sessions ADD COLUMN cleanup_reason TEXT; " +
+  "ALTER TABLE terminal_sessions ADD COLUMN cleanup_attempts INTEGER NOT NULL DEFAULT 0; " +
+  "ALTER TABLE terminal_sessions ADD COLUMN cleanup_retry_at INTEGER; " +
+  "CREATE INDEX idx_terminal_cleanup_retry ON terminal_sessions(state, cleanup_retry_at);",
+
 ];
 
 export interface OpenDbOptions {

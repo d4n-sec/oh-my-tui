@@ -283,7 +283,7 @@ export interface RegistrationTokenSummary {
 /* Durable sessions (tmux)                                                    */
 /* -------------------------------------------------------------------------- */
 
-export type SessionState = "created" | "attached" | "detached" | "ended";
+export type SessionState = "created" | "attached" | "detached" | "cleanup_pending" | "ended";
 
 export interface SessionSummary {
   id: string;
@@ -307,6 +307,9 @@ export interface SessionSummary {
   /** When the session became detached; drives the idle reap countdown. */
   detachedAt: number | null;
   closedAt: number | null;
+  cleanupRequestedAt: number | null;
+  cleanupReason: string | null;
+  cleanupRetryAt: number | null;
 }
 
 export interface CreateSessionRequest {

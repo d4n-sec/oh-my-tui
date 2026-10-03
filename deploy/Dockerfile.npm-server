@@ -1,8 +1,8 @@
 # Build the Server from the exact public npm release; no Agent is installed.
 FROM node:24-bookworm-slim
-ARG SERVER_VERSION=0.1.0-beta.1
+ARG SERVER_VERSION=0.1.0-beta.2
 LABEL org.opencontainers.image.title="Oh-My-TUI Server" \
-      org.opencontainers.image.version="0.1.0-beta.1"
+      org.opencontainers.image.version="0.1.0-beta.2"
 WORKDIR /app
 RUN npm install --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund \
       "@oh-my-tui/server@${SERVER_VERSION}" \

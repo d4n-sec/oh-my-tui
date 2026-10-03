@@ -1,6 +1,6 @@
 {
   "name": "@oh-my-tui/agent",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "description": "Oh-My-TUI terminal agent: enroll a machine and expose its local sshd to the owner's Server",
   "license": "MIT",
   "author": "d4n-sec",
@@ -42,5 +42,9 @@
     "@types/ws": "^8.5.13",
     "esbuild": "^0.24.2",
     "typescript": "^5.7.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/d4n-sec/oh-my-tui.git"
   }
 }

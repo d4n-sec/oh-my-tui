@@ -25,6 +25,10 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
 
+  if (command === "version" || command === "--version") {
+    console.log(require("../package.json").version);
+    return;
+  }
   if (!command || command === "start") {
     await start();
     return;

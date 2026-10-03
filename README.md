@@ -22,7 +22,7 @@
 - **真实交互式终端**：Server 用 ssh2 通过直连或隧道握手到目标 sshd，申请 `xterm-256color` PTY；浏览器用 xterm.js 交互。
 - **tmux 持久会话**：会话运行在目标机 tmux 中，浏览器刷新/断网/Agent 重启后重连回到同一 shell；Server 仅以派生自 Session ID 的安全名字标识 tmux 会话。
 - **会话列表**：按机器分组，展示状态（已连接/已分离/已结束）、当前运行命令（tmux `pane_current_command`）、时间与剩余保留倒计时。
-- **空闲保留 5 分钟**：非持久会话在无人连接 5 分钟后自动关闭；标记为“持久保持”的会话永不因空闲超时关闭，只能显式关闭。可用 `SESSION_IDLE_TIMEOUT_MINUTES` 调整。
+- **确认清理后才结束**：关闭/超时先进入“待清理”；只有确认目标机 tmux 已不存在才显示“已结束”。断线或结果未知时自动退避重试，待清理期间不能重连；移除机器前必须先确认清理。\n- **空闲保留 5 分钟**：非持久会话在无人连接 5 分钟后自动关闭；标记为“持久保持”的会话永不因空闲超时关闭，只能显式关闭。可用 `SESSION_IDLE_TIMEOUT_MINUTES` 调整。
 - **独占接管**：同一会话同时只有一个浏览器控制器，其他窗口需显式“接管”，旧控制器会被通知并断开。
 - **PWA**：manifest + 图标 + **无缓存** service worker（不使用 Cache Storage）；所有响应 `Cache-Control: no-store`。
 - **认证**：单所有者。**Passkey（WebAuthn）优先登录**，可添加多把、可吊销；保留**密码登录**作为后备与本地恢复（`setup-token` / `reset-owner`）。会话为 HttpOnly/SameSite Cookie。
@@ -64,7 +64,7 @@ tests/integration/ # 针对真实 SSH/网络的端到端校验
 **服务端（npm，一条命令）**
 
 ```sh
-npm install -g @oh-my-tui/server
+npm install -g @oh-my-tui/server@beta
 terminal-server setup-token        # 生成一次性初始化 Token
 terminal-server                    # 启动（默认只绑 127.0.0.1:8080 / 127.0.0.1:8443）
 ```
@@ -74,7 +74,7 @@ terminal-server                    # 启动（默认只绑 127.0.0.1:8080 / 127.
 **客户端（npm，一条命令）**
 
 ```sh
-npm install -g @oh-my-tui/agent
+npm install -g @oh-my-tui/agent@beta
 terminal-agent register --server <AGENT_SERVER_URL>
 ```
 

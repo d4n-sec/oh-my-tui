@@ -333,10 +333,13 @@ export async function registerWebRoutes(app: FastifyInstance, deps: WebDeps): Pr
   app.delete("/api/machines/:id", { preHandler: ownerGuard }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!store.getMachine(id)) return reply.code(404).send({ error: "not_found", message: "机器不存在" });
+    await sessions.closeForMachine(id, "机器已移除");
+    if (store.listActiveTerminalSessions().some((row) => row.machine_id === id)) {
+      return reply.code(409).send({ error: "cleanup_pending", message: "该机器还有待清理会话；连接恢复并确认清理后再移除机器" });
+    }
     const control = registry.getControl(id);
     control?.ws.close(4404, "machine removed");
     registry.failPendingForMachine(id, new Error("machine removed"));
-    await sessions.closeForMachine(id, "机器已移除");
     store.deleteMachine(id);
     const { deleteMachineKey } = await import("./machine-keys");
     deleteMachineKey(config.dataDir, id);

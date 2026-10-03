@@ -278,3 +278,14 @@ What remains **manual** (and why):
 - WebAuthn with a **real platform authenticator**: passkey register/login/revoke
   and password fallback are verified via a CDP **virtual authenticator** (no real
   passkey created); adding/using a real passkey on a phone is a manual item.
+
+## 0.1.0-beta.2 cleanup regression checks
+
+New isolated tests cover: offline pending intent; retry backoff and recovery;
+already absent remote sessions; unknown/failed tmux status; lost kill
+acknowledgement; duplicate close; attach/close races; persistent exemption;
+failed monitor output; additive migration and reopen durability; SSH channels
+without exit status; and restart grace. These use the real SQLite Store and
+SessionService with an isolated transport adapter; they are not a substitute for
+registered-Agent direct/relay or real-device E2E. Release validation logs retain
+the actual test counts and installation/deployment outcomes.

@@ -3,12 +3,12 @@
 name: oh-my-tui-loopback
 services:
   server:
-    image: oh-my-tui/server:0.1.0-beta.1-npm
+    image: oh-my-tui/server:0.1.0-beta.2-npm
     build:
       context: .
       dockerfile: Dockerfile.npm-server
       args:
-        SERVER_VERSION: 0.1.0-beta.1
+        SERVER_VERSION: 0.1.0-beta.2
     container_name: oh-my-tui-server
     restart: unless-stopped
     ports:
@@ -20,7 +20,7 @@ services:
       AGENT_PORT: "8443"
       WEB_ORIGIN: http://localhost:18080
       AGENT_ORIGIN: http://localhost:18443
-      AGENT_PACKAGE_NAME: "@oh-my-tui/agent@0.1.0-beta.1"
+      AGENT_PACKAGE_NAME: "@oh-my-tui/agent@0.1.0-beta.2"
       SECURE_COOKIES: "false"
       ENROLL_AUTO_APPROVE: "0"
       TRUST_PROXY: "false"

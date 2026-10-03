@@ -31,13 +31,14 @@ function statusLabel(machine: MachineSummary): string {
 }
 
 function sessionStateLabel(session: SessionSummary): string {
+  if (session.state === "cleanup_pending") return "待清理";
   if (session.state === "ended") return "已结束";
   if (session.attached) return "已连接";
   return "已分离";
 }
 
 function remainingText(session: SessionSummary, idleMs: number, now: number): string | null {
-  if (session.persistent || session.state === "ended" || session.attached) return null;
+  if (session.persistent || (session.state === "ended" || session.state === "cleanup_pending") || session.attached) return null;
   const since = session.detachedAt ?? session.createdAt;
   const left = since + idleMs - now;
   if (left <= 0) return "即将关闭";
@@ -485,6 +486,7 @@ function SessionList({
       {sessions.map((session) => {
         const remaining = remainingText(session, idleMs, now);
         const ended = session.state === "ended";
+        const pendingCleanup = session.state === "cleanup_pending";
         return (
           <li key={session.id} className={`session-item ${ended ? "ended" : ""}`}>
             <div className="session-main">
@@ -504,11 +506,12 @@ function SessionList({
                 <span>tmux: {session.tmuxName}</span>
                 <span>创建: {formatTime(session.createdAt)}</span>
                 {remaining && <span className="countdown">{remaining}</span>}
+                {pendingCleanup && <span className="countdown">已决定关闭，等待远端确认；连接恢复后自动重试。</span>}
               </div>
             </div>
             <div className="session-actions">
-              {!ended && <button onClick={() => onOpen(session)}>打开</button>}
-              {!ended && (
+              {!ended && !pendingCleanup && <button onClick={() => onOpen(session)}>打开</button>}
+              {!ended && !pendingCleanup && (
                 <button onClick={() => void runAction(() => api.setSessionPersistent(session.id, !session.persistent))}>
                   {session.persistent ? "取消持久" : "设为持久"}
                 </button>
@@ -646,7 +649,7 @@ function InteractiveMode({
 
       <div className="window-status">
         {!windowInfo.enabled ? (
-          <span className="muted small">配对窗口已关闭，随时可配对。</span>
+          <span className="muted small">配对限时已关闭，随时可配对。</span>
         ) : windowInfo.expiresAt ? (
           <span className="muted small">配对窗口剩余 {countdown(windowInfo.expiresAt, now)}</span>
         ) : (

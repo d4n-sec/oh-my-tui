@@ -81,7 +81,8 @@ export function execCapture(client: Client, command: string, timeoutMs = 8000): 
         clearTimeout(timer);
         if (settled) return;
         settled = true;
-        resolve({ code: code ?? 0, stdout, stderr });
+        if (typeof code !== "number") reject(new Error("远程命令未返回退出状态"));
+        else resolve({ code, stdout, stderr });
       });
       stream.on("error", (streamErr: Error) => {
         clearTimeout(timer);
@@ -102,7 +103,7 @@ export function attachTmux(
 ): Promise<ClientChannel> {
   return new Promise((resolve, reject) => {
     client.exec(
-      `tmux attach-session -t ${tmuxName}`,
+      `tmux attach-session -t =${tmuxName}`,
       { pty: { term: "xterm-256color", cols, rows } },
       (err, channel) => {
         if (err) reject(err);

@@ -16,6 +16,9 @@ export interface SessionDeps {
   store: Store;
   registry: Registry;
   log: SessionLogger;
+  runCommand?: (machine: MachineRow, command: string, timeoutMs: number) => Promise<ExecResult>;
+  openTerminal?: (machine: MachineRow, name: string, cols: number, rows: number) =>
+    Promise<{ client: Client; channel: import("ssh2").ClientChannel }>;
 }
 
 interface Management {
@@ -41,7 +44,7 @@ export function tmuxNameFor(sessionId: string): string {
 }
 
 export function sessionStateOf(row: TerminalSessionRow, attached: boolean): SessionState {
-  if (row.state === "ended") return "ended";
+  if (row.state === "ended" || row.state === "cleanup_pending") return row.state;
   return attached ? "attached" : "detached";
 }
 
@@ -56,7 +59,7 @@ export function shouldReapSession(
   idleTimeoutMs: number,
   hasController: boolean,
 ): boolean {
-  if (row.state === "ended") return false;
+  if (row.state === "ended" || row.state === "cleanup_pending") return false;
   if (row.persistent === 1) return false;
   if (hasController) return false;
   const since = row.detached_at ?? row.created_at;
@@ -68,10 +71,14 @@ export class SessionService {
   private readonly controllers = new Map<string, Controller>();
   private monitorTimer: NodeJS.Timeout | null = null;
   private reaperTimer: NodeJS.Timeout | null = null;
+  private readonly operations = new Map<string, Promise<unknown>>();
+  private monitoring = false;
+  private reaping = false;
 
   constructor(private readonly deps: SessionDeps) {}
 
   start(): void {
+    this.deps.store.resetAttachedSessions(Date.now());
     this.monitorTimer = setInterval(() => void this.pollAll(), this.deps.config.monitorIntervalMs);
     this.reaperTimer = setInterval(() => void this.reap(), this.deps.config.sessionReaperIntervalMs);
     this.monitorTimer.unref?.();
@@ -116,6 +123,9 @@ export class SessionService {
       lastAttachedAt: row.last_attached_at,
       detachedAt: row.detached_at,
       closedAt: row.closed_at,
+      cleanupRequestedAt: row.cleanup_requested_at ?? null,
+      cleanupReason: row.cleanup_reason ?? null,
+      cleanupRetryAt: row.cleanup_retry_at ?? null,
     };
   }
 
@@ -163,31 +173,19 @@ export class SessionService {
   async close(id: string, reason: string): Promise<SessionSummary | null> {
     const row = this.deps.store.getTerminalSession(id);
     if (!row) throw new Error("会话不存在");
-
-    this.closeController(id, reason);
-
-    if (row.state !== "ended") {
-      const machine = this.deps.store.getMachine(row.machine_id);
-      if (machine) {
-        try {
-          await this.execOnMachine(machine, `tmux kill-session -t ${row.tmux_name}`);
-        } catch (err) {
-          this.deps.log.warn("failed to kill tmux session", {
-            sessionId: id,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
+    // Persist close intent before awaiting SSH; an in-flight attach cannot revive it.
+    if (row.state !== "ended" && row.state !== "cleanup_pending") {
       this.deps.store.updateTerminalSession(id, {
-        state: "ended",
-        closedAt: Date.now(),
-        currentCommand: null,
-        detachedAt: null,
+        state: "cleanup_pending", cleanupRequestedAt: Date.now(),
+        cleanupReason: reason, cleanupAttempts: 0, cleanupRetryAt: null,
       });
-      this.deps.log.info("session closed", { sessionId: id, reason });
     }
-    const machine = this.deps.store.getMachine(row.machine_id);
-    return this.summary(this.deps.store.getTerminalSession(id)!, machine);
+    this.closeController(id, reason);
+    return this.withSessionLock(id, async () => {
+      await this.attemptCleanup(id);
+      const current = this.deps.store.getTerminalSession(id)!;
+      return this.summary(current, this.deps.store.getMachine(current.machine_id));
+    });
   }
 
   rename(id: string, title: string): void {
@@ -196,7 +194,9 @@ export class SessionService {
   }
 
   setPersistent(id: string, persistent: boolean): void {
-    if (!this.deps.store.getTerminalSession(id)) throw new Error("会话不存在");
+    const row = this.deps.store.getTerminalSession(id);
+    if (!row) throw new Error("会话不存在");
+    if (row.state === "cleanup_pending" || row.state === "ended") throw new Error("该会话已决定关闭");
     this.deps.store.updateTerminalSession(id, { persistent });
   }
 
@@ -213,28 +213,27 @@ export class SessionService {
     cols: number,
     rows: number,
   ): Promise<{ client: Client; channel: import("ssh2").ClientChannel; summary: SessionSummary }> {
+    return this.withSessionLock(id, () => this.attachLocked(id, cols, rows));
+  }
+
+  private async attachLocked(id: string, cols: number, rows: number):
+    Promise<{ client: Client; channel: import("ssh2").ClientChannel; summary: SessionSummary }> {
     const row = this.deps.store.getTerminalSession(id);
     if (!row) throw new Error("会话不存在");
     if (row.state === "ended") throw new Error("会话已结束");
+    if (row.state === "cleanup_pending") throw new Error("会话待清理，不能重新连接");
     const machine = this.deps.store.getMachine(row.machine_id);
     if (!machine) throw new Error("机器不存在");
     if (machine.disabled_at !== null) throw new Error("机器已停用");
 
-    const exists = await this.execOnMachine(machine, `tmux has-session -t ${row.tmux_name}`);
-    if (exists.code !== 0) {
+    if (!(await this.sessionExists(machine, row.tmux_name))) {
       this.endSession(row, "tmux 会话已不存在");
       throw new Error("会话已结束（目标上的 tmux 会话不存在）");
     }
-
-    const { client: terminalClient } = await openSshForMachine(this.deps.config, this.deps.registry, machine);
-    const { attachTmux } = await import("./ssh/open");
-    let channel: import("ssh2").ClientChannel;
-    try {
-      channel = await attachTmux(terminalClient, row.tmux_name, cols, rows);
-    } catch (err) {
-      terminalClient.end();
-      throw err;
-    }
+    this.assertAttachable(id);
+    const { client: terminalClient, channel } = await this.openTerminal(machine, row.tmux_name, cols, rows);
+    try { this.assertAttachable(id); }
+    catch (err) { channel.close(); terminalClient.end(); throw err; }
 
     const now = Date.now();
     this.deps.store.updateTerminalSession(id, {
@@ -251,7 +250,7 @@ export class SessionService {
     const controller = this.controllers.get(id);
     if (controller && controller.connectionId !== connectionId) return;
     const row = this.deps.store.getTerminalSession(id);
-    if (!row || row.state === "ended") return;
+    if (!row || row.state === "ended" || row.state === "cleanup_pending") return;
     this.deps.store.updateTerminalSession(id, {
       state: "detached",
       detachedAt: row.detached_at ?? Date.now(),
@@ -307,67 +306,109 @@ export class SessionService {
   /* --------------------------------- monitor -------------------------------- */
 
   private async pollAll(): Promise<void> {
-    const active = this.deps.store.listActiveTerminalSessions();
-    if (active.length === 0) return;
-    const byMachine = new Map<string, TerminalSessionRow[]>();
-    for (const row of active) {
-      const list = byMachine.get(row.machine_id) ?? [];
-      list.push(row);
-      byMachine.set(row.machine_id, list);
-    }
-    for (const [machineId, rows] of byMachine) {
-      const machine = this.deps.store.getMachine(machineId);
-      if (!machine || machine.disabled_at !== null) continue;
-      try {
-        const result = await this.execOnMachine(
-          machine,
-          `tmux list-panes -a -F "#{session_name}|#{pane_current_command}|#{pane_dead}|#{session_attached}"`,
-          6000,
-        );
-        this.reconcile(rows, parsePanes(result.stdout));
-      } catch {
-        // Machine unreachable right now; keep last known state.
+    if (this.monitoring) return;
+    this.monitoring = true;
+    try {
+      const groups = new Map<string, TerminalSessionRow[]>();
+      for (const row of this.deps.store.listActiveTerminalSessions()) {
+        if (row.state === "cleanup_pending") continue;
+        groups.set(row.machine_id, [...(groups.get(row.machine_id) ?? []), row]);
       }
-    }
-  }
-
-  private reconcile(rows: TerminalSessionRow[], panes: Map<string, PaneInfo>): void {
-    for (const row of rows) {
-      const pane = panes.get(row.tmux_name);
-      if (!pane) {
-        this.endSession(row, "tmux 会话已不存在");
-        continue;
+      for (const [machineId, rows] of groups) {
+        const machine = this.deps.store.getMachine(machineId);
+        if (!machine || machine.disabled_at !== null) continue;
+        try {
+          const result = await this.execOnMachine(machine,
+            'tmux list-panes -a -F "#{session_name}|#{pane_current_command}|#{pane_dead}|#{session_attached}"', 6000);
+          // An SSH/tmux error is not a successful empty listing.
+          if (result.code !== 0 && !isNoTmuxServer(result)) continue;
+          const panes = parsePanes(result.stdout);
+          for (const row of rows) {
+            await this.withSessionLock(row.id, async () => {
+              const current = this.deps.store.getTerminalSession(row.id);
+              if (!current || current.state === "ended" || current.state === "cleanup_pending") return;
+              const pane = panes.get(row.tmux_name);
+              if (!pane) {
+                if (this.controllers.has(row.id)) return;
+                // A stale poll cannot end a newly attached/live session.
+                if (!(await this.sessionExists(machine, row.tmux_name))) this.endSession(current, "tmux 会话已不存在");
+              } else {
+                this.deps.store.updateTerminalSession(row.id, {
+                  state: this.controllers.has(row.id) || pane.attached > 0 ? "attached" : "detached",
+                  currentCommand: pane.command || null,
+                  detachedAt: this.controllers.has(row.id) || pane.attached > 0 ? null : current.detached_at ?? Date.now(),
+                });
+              }
+            });
+          }
+        } catch { /* Offline/unknown: retain last known state. */ }
       }
-      if (pane.dead) {
-        this.endSession(row, "pane 已退出");
-        continue;
-      }
-      const attached = pane.attached > 0;
-      const command = pane.command || null;
-      if (attached) {
-        this.deps.store.updateTerminalSession(row.id, {
-          state: "attached",
-          currentCommand: command,
-          detachedAt: null,
-        });
-      } else {
-        this.deps.store.updateTerminalSession(row.id, {
-          state: "detached",
-          currentCommand: command,
-          detachedAt: row.detached_at ?? Date.now(),
-        });
-      }
-    }
+    } finally { this.monitoring = false; }
   }
 
   private async reap(): Promise<void> {
-    const now = Date.now();
-    for (const row of this.deps.store.listActiveTerminalSessions()) {
-      if (!shouldReapSession(row, now, this.deps.config.sessionIdleTimeoutMs, this.controllers.has(row.id))) {
-        continue;
+    if (this.reaping) return;
+    this.reaping = true;
+    try {
+      const now = Date.now();
+      for (const row of this.deps.store.listActiveTerminalSessions()) {
+        if (row.state === "cleanup_pending") {
+          await this.withSessionLock(row.id, () => this.attemptCleanup(row.id));
+        } else if (shouldReapSession(row, now, this.deps.config.sessionIdleTimeoutMs,
+          this.controllers.has(row.id) || this.operations.has(row.id))) {
+          await this.close(row.id, "空闲超时自动关闭");
+        }
       }
-      this.deps.log.info("reaping idle session", { sessionId: row.id });
-      await this.close(row.id, "空闲超时自动关闭").catch(() => undefined);
+    } finally { this.reaping = false; }
+  }
+
+  private async withSessionLock<T>(id: string, action: () => Promise<T>): Promise<T> {
+    const previous = this.operations.get(id);
+    const operation = (async () => { await previous?.catch(() => undefined); return action(); })();
+    this.operations.set(id, operation);
+    try { return await operation; }
+    finally { if (this.operations.get(id) === operation) this.operations.delete(id); }
+  }
+
+  private assertAttachable(id: string): void {
+    const row = this.deps.store.getTerminalSession(id);
+    if (!row || row.state === "ended" || row.state === "cleanup_pending") throw new Error("会话已决定关闭，不能重新连接");
+  }
+
+  private async openTerminal(machine: MachineRow, name: string, cols: number, rows: number) {
+    if (this.deps.openTerminal) return this.deps.openTerminal(machine, name, cols, rows);
+    const { client } = await openSshForMachine(this.deps.config, this.deps.registry, machine);
+    const { attachTmux } = await import("./ssh/open");
+    try { return { client, channel: await attachTmux(client, name, cols, rows) }; }
+    catch (err) { client.end(); throw err; }
+  }
+
+  private async sessionExists(machine: MachineRow, name: string): Promise<boolean> {
+    const result = await this.execOnMachine(machine, "tmux list-sessions -F '#{session_name}'");
+    if (result.code === 0) return result.stdout.split(/\r?\n/).includes(name);
+    if (isNoTmuxServer(result)) return false;
+    throw new Error("无法确认 tmux 会话状态（退出码 " + result.code + "）");
+  }
+
+  private async attemptCleanup(id: string): Promise<void> {
+    const row = this.deps.store.getTerminalSession(id);
+    if (!row || row.state !== "cleanup_pending") return;
+    if (row.cleanup_retry_at && row.cleanup_retry_at > Date.now()) return;
+    try {
+      const machine = this.deps.store.getMachine(row.machine_id);
+      if (!machine) throw new Error("机器记录缺失，无法确认远端会话");
+      if (await this.sessionExists(machine, row.tmux_name)) {
+        await this.execOnMachine(machine, "tmux kill-session -t =" + row.tmux_name);
+        if (await this.sessionExists(machine, row.tmux_name)) throw new Error("远端 tmux 会话仍存在");
+      }
+      this.endSession(row, row.cleanup_reason ?? "清理完成");
+    } catch {
+      const attempts = (row.cleanup_attempts ?? 0) + 1;
+      this.deps.store.updateTerminalSession(id, {
+        cleanupAttempts: attempts,
+        cleanupRetryAt: Date.now() + Math.min(5000 * 2 ** Math.min(attempts - 1, 4), 60000),
+      });
+      this.deps.log.warn("session cleanup pending; will retry", { sessionId: id, attempts });
     }
   }
 
@@ -378,6 +419,7 @@ export class SessionService {
       closedAt: Date.now(),
       currentCommand: null,
       detachedAt: null,
+      cleanupRetryAt: null,
     });
     this.deps.log.info("session ended", { sessionId: row.id, reason });
   }
@@ -405,6 +447,7 @@ export class SessionService {
    * having fired yet, which surfaces as "Not connected" on the next exec.
    */
   private async execOnMachine(machine: MachineRow, command: string, timeoutMs = 8000): Promise<ExecResult> {
+    if (this.deps.runCommand) return this.deps.runCommand(machine, command, timeoutMs);
     const client = await this.getManagement(machine);
     try {
       return await execCapture(client, command, timeoutMs);
@@ -454,4 +497,8 @@ function parsePanes(stdout: string): Map<string, PaneInfo> {
     });
   }
   return map;
+}
+
+function isNoTmuxServer(result: ExecResult): boolean {
+  return result.code === 1 && /^(?:no server running on [^\r\n]+|error connecting to [^\r\n]+ \(No such file or directory\))\r?\n?$/.test(result.stderr);
 }

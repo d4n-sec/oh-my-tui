@@ -182,7 +182,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     webOrigin,
     agentOrigin,
     commandOrigin,
-    agentPackageName: (env.AGENT_PACKAGE_NAME || "@oh-my-tui/agent").trim(),
+    agentPackageName: (env.AGENT_PACKAGE_NAME || (require("../package.json").version.includes("-") ? "@oh-my-tui/agent@beta" : "@oh-my-tui/agent@latest")).trim(),
     secureCookies: bool("SECURE_COOKIES", webOrigin.startsWith("https://"), env),
     tokenTtlMs: int("TOKEN_TTL_MINUTES", 15, env) * 60_000,
     sessionTtlMs: int("SESSION_TTL_HOURS", 24 * 14, env) * 3_600_000,

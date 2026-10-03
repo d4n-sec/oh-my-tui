@@ -73,6 +73,10 @@ export interface TerminalSessionRow {
   last_attached_at: number | null;
   detached_at: number | null;
   closed_at: number | null;
+  cleanup_requested_at?: number | null;
+  cleanup_reason?: string | null;
+  cleanup_attempts?: number;
+  cleanup_retry_at?: number | null;
 }
 
 export interface TerminalSessionPatch {
@@ -85,6 +89,10 @@ export interface TerminalSessionPatch {
   lastAttachedAt?: number | null;
   detachedAt?: number | null;
   closedAt?: number | null;
+  cleanupRequestedAt?: number | null;
+  cleanupReason?: string | null;
+  cleanupAttempts?: number;
+  cleanupRetryAt?: number | null;
 }
 
 export interface PendingEnrollmentRow {
@@ -425,9 +433,17 @@ export class Store {
     if (patch.lastAttachedAt !== undefined) add("last_attached_at", patch.lastAttachedAt);
     if (patch.detachedAt !== undefined) add("detached_at", patch.detachedAt);
     if (patch.closedAt !== undefined) add("closed_at", patch.closedAt);
+    if (patch.cleanupRequestedAt !== undefined) add("cleanup_requested_at", patch.cleanupRequestedAt);
+    if (patch.cleanupReason !== undefined) add("cleanup_reason", patch.cleanupReason);
+    if (patch.cleanupAttempts !== undefined) add("cleanup_attempts", patch.cleanupAttempts);
+    if (patch.cleanupRetryAt !== undefined) add("cleanup_retry_at", patch.cleanupRetryAt);
     if (columns.length === 0) return;
     values.push(id);
     this.db.prepare(`UPDATE terminal_sessions SET ${columns.join(", ")} WHERE id = ?`).run(...values);
+  }
+
+  resetAttachedSessions(now: number): void {
+    this.db.prepare("UPDATE terminal_sessions SET state='detached', detached_at=COALESCE(detached_at, ?) WHERE state='attached'").run(now);
   }
 
   deleteTerminalSession(id: string): void {
