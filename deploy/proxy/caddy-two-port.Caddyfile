@@ -1,0 +1,17 @@
+# Two-port TLS termination with Caddy (automatic certificates).
+#
+# - Browser entrance on 443 -> WEB listener 127.0.0.1:8080
+# - Agent entrance on 8443  -> AGENT listener 127.0.0.1:8443
+# Caddy proxies WebSocket upgrades automatically.
+#
+# Run alongside the production compose, e.g. in a small caddy container with
+# host networking, or as a host service. Replace the hostname.
+
+terminal.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8080
+}
+
+terminal.example.com:8443 {
+	reverse_proxy 127.0.0.1:8443
+}

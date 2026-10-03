@@ -1,0 +1,29 @@
+# Managed-machine image for the Colima/Docker simulation:
+# sshd + tmux + the terminal-agent CLI. Not intended for production use.
+# Build context is the repository root: docker build -f deploy/Dockerfile.client .
+
+FROM node:24-bookworm-slim
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssh-server tmux ca-certificates bash procps iptables \
+  && rm -rf /var/lib/apt/lists/* \
+  && useradd --create-home --shell /bin/bash dev \
+  && mkdir -p /run/sshd /home/dev/.ssh /home/dev/.config/terminal-agent \
+  && chown -R dev:dev /home/dev \
+  && chmod 700 /home/dev/.ssh \
+  && ssh-keygen -A
+
+COPY deploy/sshd_config /etc/ssh/sshd_config
+# Install the agent's single runtime dependency next to the bundle so the CLI
+# resolves `ws` without needing the monorepo at runtime.
+RUN mkdir -p /opt/terminal-agent \
+  && cd /opt/terminal-agent \
+  && npm init -y >/dev/null 2>&1 \
+  && npm install ws@8.18.0 --omit=dev >/dev/null 2>&1
+COPY packages/agent/dist/cli.js /opt/terminal-agent/cli.js
+COPY deploy/client-entrypoint.sh /usr/local/bin/client-entrypoint
+RUN chmod +x /usr/local/bin/client-entrypoint \
+  && printf '#!/bin/sh\nexec node /opt/terminal-agent/cli.js "$@"\n' > /usr/local/bin/terminal-agent \
+  && chmod +x /usr/local/bin/terminal-agent
+
+EXPOSE 22
+ENTRYPOINT ["/usr/local/bin/client-entrypoint"]

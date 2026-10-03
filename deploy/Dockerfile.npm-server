@@ -1,0 +1,14 @@
+# Build the Server from the exact public npm release; no Agent is installed.
+FROM node:24-bookworm-slim
+ARG SERVER_VERSION=0.1.0-beta.1
+LABEL org.opencontainers.image.title="Oh-My-TUI Server" \
+      org.opencontainers.image.version="0.1.0-beta.1"
+WORKDIR /app
+RUN npm install --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund \
+      "@oh-my-tui/server@${SERVER_VERSION}" \
+    && node -e 'const p=require("./node_modules/@oh-my-tui/server/package.json"); if(p.version!==process.argv[1]) process.exit(1); console.log(p.name+"@"+p.version)' "$SERVER_VERSION" \
+    && mkdir -p /data && chown node:node /data
+USER node
+ENV NODE_ENV=production DATA_DIR=/data DOCKER_ENV=1
+EXPOSE 8080 8443
+CMD ["node", "node_modules/@oh-my-tui/server/dist/cli.js"]

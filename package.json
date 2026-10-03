@@ -1,0 +1,29 @@
+{
+  "name": "oh-my-tui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal Terminal: single-owner remote terminal manager (Server + npm Agent)",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @oh-my-tui/protocol && npm run build -w @oh-my-tui/web && npm run build -w @oh-my-tui/server && npm run build -w @oh-my-tui/agent",
+    "build:protocol": "npm run build -w @oh-my-tui/protocol",
+    "build:server": "npm run build -w @oh-my-tui/server",
+    "build:web": "npm run build -w @oh-my-tui/web",
+    "build:agent": "npm run build -w @oh-my-tui/agent",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test -w @oh-my-tui/server && npm run test -w @oh-my-tui/agent",
+    "e2e": "playwright test",
+    "pack:agent": "npm run pack -w @oh-my-tui/agent",
+    "pack:server": "npm run pack -w @oh-my-tui/server"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}

@@ -1,0 +1,29 @@
+# Override: run ONLY the Server (plain HTTP) and let YOUR OWN reverse proxy
+# terminate TLS on the two entrances (e.g. an existing nginx).
+#
+#   docker compose -f deploy/docker-compose.prod.yml \
+#                  -f deploy/docker-compose.behind-proxy.yml \
+#                  --env-file deploy/.env up -d
+#
+# This disables the bundled Caddy and publishes the Server's two listeners on
+# BIND_ADDR (default 127.0.0.1) so your proxy can reach them:
+#   nginx WEB   -> http://127.0.0.1:${SERVER_WEB_PORT:-8080}
+#   nginx AGENT -> http://127.0.0.1:${SERVER_AGENT_PORT:-8443}
+#
+# Your proxy must forward WebSocket upgrades on BOTH entrances and use two
+# DISTINCT public ports/hostnames. See deploy/proxy/nginx-two-port.conf.example.
+
+services:
+  server:
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${SERVER_WEB_PORT:-8080}:8080"
+      - "${BIND_ADDR:-127.0.0.1}:${SERVER_AGENT_PORT:-8443}:8443"
+    environment:
+      # Your reverse proxy is the single trusted hop in front. Default assumes a
+      # proxy on the host reaching the loopback binding; adjust for your setup.
+      TRUST_PROXY: ${TRUST_PROXY:-127.0.0.1}
+
+  caddy:
+    # A profile that is never enabled by default, so Caddy is not started.
+    profiles:
+      - caddy-disabled

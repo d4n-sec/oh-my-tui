@@ -1,0 +1,16 @@
+# Caddy TLS termination using existing certificate files.
+#
+# Enable with CADDYFILE=Caddyfile.certs in deploy/.env. Put the certificate and
+# key in deploy/certs/ (mounted read-only at /certs). The certificate must be
+# valid for both WEB_HOST and AGENT_HOST.
+
+{$WEB_HOST} {
+	encode zstd gzip
+	tls /certs/server.pem /certs/server.key
+	reverse_proxy server:8080
+}
+
+{$AGENT_HOST}:{$AGENT_PORT} {
+	tls /certs/server.pem /certs/server.key
+	reverse_proxy server:8443
+}

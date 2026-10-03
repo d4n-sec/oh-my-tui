@@ -1,0 +1,18 @@
+# Caddy TLS termination for LAN / no-public-domain deployments.
+#
+# Caddy signs with its INTERNAL CA. Extract the root for agents/curl with
+# deploy/scripts/caddy-root-ca.sh, then set NODE_EXTRA_CA_CERTS on each machine.
+#
+# Enable with CADDYFILE=Caddyfile.local in deploy/.env. Works for any hostname,
+# including bare names like `home` or internal ones like `host.lan`.
+
+{$WEB_HOST} {
+	encode zstd gzip
+	tls internal
+	reverse_proxy server:8080
+}
+
+{$AGENT_HOST}:{$AGENT_PORT} {
+	tls internal
+	reverse_proxy server:8443
+}

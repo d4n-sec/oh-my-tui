@@ -1,0 +1,52 @@
+# Isolated Server installation for local access over an SSH tunnel.
+# No owner credentials, Agent, proxy, TLS certificates, or public ports are created.
+name: oh-my-tui-loopback
+services:
+  server:
+    image: oh-my-tui/server:0.1.0-beta.1-npm
+    build:
+      context: .
+      dockerfile: Dockerfile.npm-server
+      args:
+        SERVER_VERSION: 0.1.0-beta.1
+    container_name: oh-my-tui-server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18080:8080"
+      - "127.0.0.1:18443:8443"
+    environment:
+      DATA_DIR: /data
+      WEB_PORT: "8080"
+      AGENT_PORT: "8443"
+      WEB_ORIGIN: http://localhost:18080
+      AGENT_ORIGIN: http://localhost:18443
+      AGENT_PACKAGE_NAME: "@oh-my-tui/agent@0.1.0-beta.1"
+      SECURE_COOKIES: "false"
+      ENROLL_AUTO_APPROVE: "0"
+      TRUST_PROXY: "false"
+      LOG_LEVEL: info
+    volumes:
+      - server-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/bootstrap').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+volumes:
+  server-data:
+    name: oh-my-tui-server-data

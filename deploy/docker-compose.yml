@@ -1,0 +1,103 @@
+name: oh-my-tui
+
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.server
+    image: oh-my-tui/server:dev
+    environment:
+      WEB_PORT: "8080"
+      AGENT_PORT: "8443"
+      WEB_ORIGIN: "http://localhost:8080"
+      AGENT_ORIGIN: "https://localhost:8443"
+      AGENT_TLS_CERT: /certs/server.pem
+      AGENT_TLS_KEY: /certs/server.key
+      DATA_DIR: /data
+      LOG_LEVEL: info
+      # Idle grace period for detached, non-persistent sessions (minutes).
+      SESSION_IDLE_TIMEOUT_MINUTES: ${SESSION_IDLE_TIMEOUT_MINUTES:-5}
+      MONITOR_INTERVAL_MS: ${MONITOR_INTERVAL_MS:-4000}
+      # Optional hardening: >0 requires opening 添加机器 before a machine may
+      # announce itself. 0 (default) lets machines initiate at any time.
+      ENROLL_PAIRING_WINDOW_MINUTES: ${ENROLL_PAIRING_WINDOW_MINUTES:-0}
+      ENROLL_AUTO_APPROVE: "1"
+    volumes:
+      - server-data:/data
+      - ./certs:/certs:ro
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    networks:
+      - ht-net
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/api/bootstrap').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Directly reachable on the shared bridge network: the Server probes and uses
+  # a direct SSH connection to this container's sshd.
+  client-direct:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.client
+    image: oh-my-tui/client:dev
+    environment:
+      TERMINAL_AGENT_SERVER: https://server:8443
+      TERMINAL_AGENT_CONFIG_DIR: /home/dev/.config/terminal-agent
+      MACHINE_NAME: client-direct
+      NODE_EXTRA_CA_CERTS: /certs/ca.pem
+      # Simulation-only: entrypoint self-enrolls without the owner-relayed token.
+      CLIENT_AUTO_ENROLL: "1"
+      TERMINAL_AGENT_TOKEN: ${CLIENT_TOKEN_DIRECT:-}
+    volumes:
+      - ./certs:/certs:ro
+      - client-direct-config:/home/dev/.config/terminal-agent
+    depends_on:
+      server:
+        condition: service_healthy
+    networks:
+      - ht-net
+
+  # Simulates a NAT'd machine: it advertises only loopback as a candidate SSH
+  # address, so the Server's direct probe against 127.0.0.1:22 fails and the
+  # Agent-initiated relay channel is used instead.
+  client-relay:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.client
+    image: oh-my-tui/client:dev
+    environment:
+      TERMINAL_AGENT_SERVER: https://server:8443
+      TERMINAL_AGENT_CONFIG_DIR: /home/dev/.config/terminal-agent
+      MACHINE_NAME: client-relay
+      TERMINAL_AGENT_BLOCK_INBOUND: "1"
+      NODE_EXTRA_CA_CERTS: /certs/ca.pem
+      CLIENT_AUTO_ENROLL: "1"
+      TERMINAL_AGENT_TOKEN: ${CLIENT_TOKEN_RELAY:-}
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./certs:/certs:ro
+      - client-relay-config:/home/dev/.config/terminal-agent
+    depends_on:
+      server:
+        condition: service_healthy
+    networks:
+      - ht-net
+
+networks:
+  ht-net:
+    driver: bridge
+
+volumes:
+  server-data:
+  client-direct-config:
+  client-relay-config:

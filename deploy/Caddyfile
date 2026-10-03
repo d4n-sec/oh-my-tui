@@ -1,0 +1,24 @@
+# Caddy TLS termination for the two public entrances (automatic HTTPS).
+#
+# Use this file when the hosts are:
+#   - real public domains  -> Caddy obtains ACME certificates automatically
+#     (requires inbound 80/443 and DNS pointing here), or
+#   - localhost / *.local / IP literals -> Caddy automatically uses its internal
+#     CA (extract it with deploy/scripts/caddy-root-ca.sh).
+#
+# For any OTHER internal/LAN hostname (e.g. a bare name or `host.home`), Caddy
+# would try ACME and fail; use deploy/Caddyfile.local instead (CADDYFILE=Caddyfile.local).
+#
+# To use your own certificate files, mount deploy/Caddyfile.certs (CADDYFILE=Caddyfile.certs).
+#
+# Entrances:  browser -> WEB_HOST (443) ; agent -> AGENT_HOST:AGENT_PORT
+# Both proxy to the `server` service on the compose network.
+
+{$WEB_HOST} {
+	encode zstd gzip
+	reverse_proxy server:8080
+}
+
+{$AGENT_HOST}:{$AGENT_PORT} {
+	reverse_proxy server:8443
+}

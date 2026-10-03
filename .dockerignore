@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+.git
+.gitignore
+.data
+data
+*.log
+*.tgz
+deploy/certs
+HOME_TERMINAL_IMPLEMENTATION_PROMPT.md
+**/dist
+!packages/agent/dist
+!packages/agent/dist/**
